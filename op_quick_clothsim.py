@@ -50,6 +50,7 @@ class QuickClothsim(ObjectModeOperator, Operator):
         if objects is not None :
             for obj in objects:
                     cloth_mod = obj.modifiers.new(name = 'Cloth', type = 'CLOTH')
+                    cloth_mod = obj.modifiers.get('Cloth')
                     #pressure
                     if (self.pressure_style != 'OFF'):
                         cloth_mod.settings.use_pressure = True
