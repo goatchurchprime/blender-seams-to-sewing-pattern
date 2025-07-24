@@ -12,6 +12,7 @@ if "bpy" in locals():
     import importlib
     importlib.reload(op_seams_to_sewingpattern)
     importlib.reload(op_export_sewingpattern)
+    importlib.reload(op_export_flatpattern)
     importlib.reload(op_export_stl_seams)
     importlib.reload(op_quick_clothsim)
     importlib.reload(op_boundary_alinged_remesh)
@@ -20,13 +21,14 @@ if "bpy" in locals():
 else:
     from . import op_seams_to_sewingpattern
     from . import op_export_sewingpattern
+    from . import op_export_flatpattern
     from . import op_export_stl_seams
     from . import op_quick_clothsim
     from . import op_boundary_alinged_remesh
     from . import op_clean_up_edges
     from . import op_freecad_flatten_component
 
-print("RELOADING SEAMS TO SEWINGPATTERN ADDON***XXXXXXXXXX ***")
+print("RELOADING SEAMS TO SEWINGPATTERN ADDON***XXXXXXXXXXXXXX ***")
 
 import bpy
 from bpy.types import Menu
@@ -51,7 +53,7 @@ class VIEW3D_MT_object_seams_to_sewing_pattern_menu(Menu):
         layout = self.layout
         layout.operator("object.freecad_flatten_component", text="Freecad flatten component", icon="OUTLINER_DATA_SURFACE")
         layout.separator()
-        layout.operator("object.seams_to_sewingpattern", text="Seams to Selllwing Pattern", icon="OUTLINER_DATA_SURFACE")
+        layout.operator("object.seams_to_flatpattern", text="Seams to Flat sewing Pattern", icon="OUTLINER_DATA_SURFACE")
         layout.separator()
         layout.operator("object.export_sewingpattern", text="Export Sewing Pattern (.svg)", icon="EXPORT")
         layout.separator()
@@ -64,6 +66,7 @@ classes = [
     VIEW3D_MT_object_seams_to_sewing_pattern_menu,
     op_seams_to_sewingpattern.Seams_To_SewingPattern,
     op_export_sewingpattern.Export_Sewingpattern,
+    op_export_flatpattern.Export_FlatPattern,
     op_export_stl_seams.Export_SeamsSTL, 
     op_quick_clothsim.QuickClothsim,
     op_boundary_alinged_remesh.Remesher,
