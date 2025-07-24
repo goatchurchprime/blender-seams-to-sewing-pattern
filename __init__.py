@@ -26,7 +26,7 @@ else:
     from . import op_clean_up_edges
     from . import op_freecad_flatten_component
 
-print("RELOADING SEAMS TO SEWINGPATTERN ADDON***XX ***")
+print("RELOADING SEAMS TO SEWINGPATTERN ADDON***XXXXXXXXXX ***")
 
 import bpy
 from bpy.types import Menu

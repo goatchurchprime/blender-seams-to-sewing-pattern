@@ -6,10 +6,14 @@ import mathutils
 import math
 from bpy.props import (
     BoolProperty,
+    FloatProperty,
     IntProperty,
     EnumProperty,
 )
 
+# needs to select the area to flatten (triangle select and L)
+# then go back to object mode, select this option, turn off generate flat mesh
+# run, then edit mode, attributes panel, see CCC, and viewport shading color by attribute CCC
 
 import sys
 sys.path.append("/nix/store/izs69w0zy2wimfkw6yfrrkazra631lid-freecad-1.0.0/lib")
@@ -29,6 +33,20 @@ class Freecad_flatten_component(Operator):
         description="Applies all modifiers before operating.",
         default=True,
     )
+    distort_colors: BoolProperty(
+        name="Distort colors",
+        description="Color triangles by distortion.",
+        default=True,
+    )
+    make_flatmesh: BoolProperty(
+        name="Make flat mesh",
+        default=True,
+    )
+    stretch_range: FloatProperty(
+        name="Stretch range",
+        min=0.000001,
+        default = 0.1 
+    )
 
     def invoke(self, context, event):
         wm = context.window_manager
@@ -44,7 +62,13 @@ class Freecad_flatten_component(Operator):
         layout.row()
         row = layout.row()
         row.prop(self, "apply_modifiers")
-        layout.row()
+        row = layout.row()
+        row.prop(self, "distort_colors")
+        row = layout.row()
+        row.prop(self, "make_flatmesh")
+        row = layout.row()
+        row.prop(self, "stretch_range")
+
 
     def execute(self, context):
         if self.apply_modifiers:
@@ -66,8 +90,6 @@ class Freecad_flatten_component(Operator):
         seam_edges = list(filter(lambda e: e.seam, bm.edges))
         facverts = facevertstodoubleup(seam_edges, fg)
         tris = trilist(gmap, verts, facverts, fg)
-        print(tris)
-        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
 
         flattener = flatmesh.FaceUnwrapper(numpy.array(verts), numpy.array(tris))
         flattener.findFlatNodes(10, 0.95)
@@ -75,19 +97,111 @@ class Freecad_flatten_component(Operator):
         if math.isnan(fpts[0][0]) or math.isnan(fpts[0][1]) or math.isnan(fpts[0][2]):
             print("fluffnumber flattening failed", fluffnumber)
 
-        mesh = bpy.data.meshes.new("flatmesh")
-        #fpts = [ (0.,0.,0.),(1.,0.,0.),(0.,1.,0.) ]
-        #tris = [ (0,1,2) ]
-        mesh.from_pydata(fpts, [], tris)
-        mobj = bpy.data.objects.new(mesh.name, mesh)
-        mcoll = bpy.data.collections.new(mesh.name)
-        bpy.context.scene.collection.children.link(mcoll)
-        mcoll.objects.link(mobj)
+        stretchrange =  self.stretch_range
+        print("stretchrange ", stretchrange)
+        if self.distort_colors:
+            if len(bm.loops.layers.color) > 0:
+                color_layer = bm.loops.layers.color[obj.data.vertex_colors.active_index]
+            else:
+                color_layer = bm.loops.layers.color.new("CCC")
+            fvals = triangledistortions(numpy.array(verts), numpy.array(fpts), numpy.array(tris))
+            print("min max distort", min(fvals), max(fvals))
+            for face, d in zip(fg, fvals):
+                l = min(1.0, abs(d)/stretchrange)
+                c = col1*(1-l) + (col0 if d < 0 else col2)*l
+                for loop in face.loops:
+                    loop[color_layer] = c
+            #bm.to_mesh(obj.data)
 
-        bpy.context.view_layer.objects.active = mobj
+        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        if self.make_flatmesh:
+            mesh = bpy.data.meshes.new("flatmesh")
+            mesh.from_pydata(fpts, [], tris)
+            mobj = bpy.data.objects.new(mesh.name, mesh)
+            mcoll = bpy.data.collections.new(mesh.name)
+            bpy.context.scene.collection.children.link(mcoll)
+            mcoll.objects.link(mobj)
+            bpy.context.view_layer.objects.active = mobj
 
         return {'FINISHED'}
 
+def trianglearea(p0, p1, p2):
+    a = p1 - p0
+    b = p2 - p0
+    c = numpy.array((a[1]*b[2] - b[1]*a[2], -a[0]*b[2] + b[0]*a[2], a[0]*b[1] - b[0]*a[1]))
+    return math.sqrt(sum(c*c))/2
+
+col0 = numpy.array((1.0,0.0,0.0,1.0))
+col1 = numpy.array((0.9,0.9,0.9,1.0))
+col2 = numpy.array((0.0,0.0,1.0,1.0))
+
+
+def triangledistortions(verts, fpts, tris):
+    fvals = [ ]
+    for tri in tris:
+        av = trianglearea(verts[tri[0]], verts[tri[1]], verts[tri[2]])
+        fv = trianglearea(fpts[tri[0]], fpts[tri[1]], fpts[tri[2]])
+        fvals.append(fv/av - 1.0)
+    return fvals
+
+"""
+import bpy, bmesh
+
+mesh = bpy.context.object.data
+bm = bmesh.new()
+bm.from_mesh(mesh)
+color_layer = bm.loops.layers.color.new("CCC")
+for vert in bm.verts:
+    for loop in vert.link_loops:
+        loop[color_layer] = tuple(vert.co)+(1,)
+        
+bm.to_mesh(mesh)
+
+
+mesh = bpy.context.object.data
+bm = bmesh.new()
+bm.from_mesh(mesh)
+color_layer = bm.loops.layers.color[mesh.vertex_colors.active_index]
+for vert in bm.verts[:10]:
+    for loop in vert.link_loops:
+        loop[color_layer] = (0,0,1,1)
+
+for face in bm.faces[:10]:
+    for loop in face.loops:
+        loop[color_layer] = (0,1,0,1)
+        
+bm.to_mesh(mesh)
+
+colv0 = -0.1
+colv2 = 0.1
+colv1 = (colv0 + colv2)/2
+col0 = P3(1,0,0)
+col1 = P3(0.9,0.9,0.9)
+col2 = P3(0,0,1)
+baspectratio = True
+def convcl(v, v0, v1, cl0, cl1):
+    lam = max(0, min(1, (v - v0)/(v1 - v0)))
+    c = cl0*(255*(1-lam)) + cl1*(255*lam)
+    c = cl0*(255*(1-lam)) + cl1*(255*lam)
+    return (int(c[0])<<24) + (int(c[1])<<16) + (int(c[2])<<8) + 255
+def convcol(v):
+    return convcl(v, colv0, colv1, col0, col1) if v < colv1 else convcl(v, colv1, colv2, col1, col2)
+def colorbydistortion(mtriangulation, mflattened):
+    facets1 = mtriangulation.Mesh.Facets
+    facets2 = mflattened.Mesh.Facets
+    assert(len(facets1) == len(facets2))
+    FaceColors = [ ]
+    cs = [ ]
+    for f1, f2 in zip(facets1, facets2):
+        if baspectratio:
+            c = f1.AspectRatio/f2.AspectRatio - 1.0
+        else:
+            c = f1.Area/f2.Area - 1.0
+        cs.append(c)
+        FaceColors.append(convcol(c))
+
+
+"""
 
 def trilist(gmap, verts, facverts, fg):
     for i in range(len(facverts)):
