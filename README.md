@@ -6,6 +6,14 @@ An add-on for Blender that assists with setting up 2D sewing patterns from 3D mo
 [![](https://img.youtube.com/vi/EZr__pTxsKk/mqdefault.jpg)\
 ▶ Quick guide on youtube](https://www.youtube.com/watch?v=EZr__pTxsKk)
 
+# Notes
+
+link from the addons directory
+> $ ~/.config/blender/4.5/scripts/addons]$ ln -s ../../../../../repositories/blender-seams-to-sewing-pattern-FC/ blender-seams-to-sewing-pattern
+
+go into blender-seams-to-sewing-pattern-FC/magic-blender and execute nix develop to enable python libraries flatmesh and numpy
+
+
 # installation
 Download the archive here:\
 https://gitlab.com/thomaskole/blender-seams-to-sewing-pattern/-/archive/master/blender-seams-to-sewing-pattern-master.zip

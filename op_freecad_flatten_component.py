@@ -15,10 +15,14 @@ from bpy.props import (
 # then go back to object mode, select this option, turn off generate flat mesh
 # run, then edit mode, attributes panel, see CCC, and viewport shading color by attribute CCC
 
-import sys
-sys.path.append("/nix/store/izs69w0zy2wimfkw6yfrrkazra631lid-freecad-1.0.0/lib")
-sys.path.append("/nix/store/4chbw98xmm4bglfl8f8fmij17ajvf4yi-python3.11-numpy-2.2.4/lib/python3.11/site-packages/")
-import numpy, flatmesh, math
+# Now no longer necessary using the blender made with nix develop in magic blender file
+#import sys
+#sys.path.append("/nix/store/izs69w0zy2wimfkw6yfrrkazra631lid-freecad-1.0.0/lib")
+#sys.path.append("/nix/store/4chbw98xmm4bglfl8f8fmij17ajvf4yi-python3.11-numpy-2.2.4/lib/python3.11/site-packages/")
+
+import numpy
+import flatmesh
+import math
 
 class Freecad_flatten_component(Operator):
     bl_idname = "object.freecad_flatten_component"
@@ -100,12 +104,12 @@ class Freecad_flatten_component(Operator):
             face_groups.append(fg)
         
         flatteneddata = [ ]
-        for fg in face_groups:
+        for i, fg in enumerate(face_groups):
             g = sorted(set().union(*((v.index  for v in f.verts) for f in fg)))
-            verts = [ tuple(bmverts[i].co)  for i in g ]
+            verts = [ tuple(bmverts[j].co)  for j in g ]
             gmap = dict(zip(g, range(len(g))))
 
-            print("faces ", len(bm.faces), len(verts), len(fg))
+            print(i, "faces ", len(fg), len(verts))
             seam_edges = list(filter(lambda e: e.seam, bm.edges))
             facverts = facevertstodoubleup(seam_edges, fg)
             tris = trilist(gmap, verts, facverts, fg)
@@ -114,7 +118,7 @@ class Freecad_flatten_component(Operator):
             nptris = numpy.array(tris)
             flattener = flatmesh.FaceUnwrapper(npverts, nptris)
             flattener.findFlatNodes(10, 0.95)
-            fpts = [ (ze[0], ze[1], 0)  for ze in flattener.ze_nodes ]
+            fpts = [ (ze[0], ze[1], i*0.01)  for ze in flattener.ze_nodes ]
             npfpts = numpy.array(fpts)
             if math.isnan(fpts[0][0]) or math.isnan(fpts[0][1]) or math.isnan(fpts[0][2]):
                 print("fluffnumber flattening failed")
@@ -196,7 +200,7 @@ def trilist(gmap, verts, facverts, fg):
 def facevertstodoubleup(seam_edges, fg):
     res = [ ]
     internal_seams = set(e  for e in seam_edges  if sum(int(f in fg)  for f in e.link_faces) == 2)
-    print("internal seams vertex pairs", [[e.verts[0].index, e.verts[1].index]  for e in internal_seams])
+    #print("internal seams vertex pairs", [[e.verts[0].index, e.verts[1].index]  for e in internal_seams])
     while internal_seams:
         lfaces = [ ]
         lverts = set()
