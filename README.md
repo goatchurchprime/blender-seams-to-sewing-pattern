@@ -6,7 +6,19 @@ An add-on for Blender that assists with setting up 2D sewing patterns from 3D mo
 [![](https://img.youtube.com/vi/EZr__pTxsKk/mqdefault.jpg)\
 ▶ Quick guide on youtube](https://www.youtube.com/watch?v=EZr__pTxsKk)
 
-# Notes
+# Goatchurchprime's notes on forked code
+
+This is an extremely well-integrated and interesting plugin.  However it is fundamentally flawed by 
+its dependence on the Blender UV unwrapping algorithm that is designed to preserve angles 
+not areas because it is intended to make texture mapping look good, not to make 
+manufacturable parts.
+
+Luckily there is a function in FreeCAD that does surface flattening properly, and has been used in the 
+manufacture of hang-glider designs.  https://forum.freecad.org/viewtopic.php?t=18010
+
+I have bodged the functions enough to use it in Blender with minimal finesse on the UI to design a pattern for a plushie-like object, 
+and the results are promising.  Development may continue if there is an interest by someone else in using it as well, 
+with the emphasis on a real world application where the accuracy of the pattern matters.
 
 link from the addons directory
 > $ ~/.config/blender/4.5/scripts/addons]$ ln -s ../../../../../repositories/blender-seams-to-sewing-pattern-FC/ blender-seams-to-sewing-pattern
