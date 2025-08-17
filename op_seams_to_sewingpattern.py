@@ -18,6 +18,90 @@ else:
     from . import function_wrapper_2_8 as function_wrapper
 
 
+"""
+import bmesh
+me = bpy.context.edit_object.data
+bm = bmesh.from_edit_mesh(me)
+bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.02)
+Anvbyss
+art by ashley
+Fid_
+"""
+
+import numpy
+import flatmesh
+
+def freecadflatten(bm, me):
+    uv_layer = bm.loops.layers.uv.active
+    bpy.ops.uv.select(deselect_all=True)
+
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.select_all()
+    faces = set(bm.faces[:])
+    faceGroups = [ ]
+    while faces:
+        bpy.ops.uv.select(deselect_all=True)
+        eselface = [l.face  for f in faces  for l in f.loops  if l[uv_layer].select]  # should be empty from function above!
+        if not eselface:
+            face = faces.pop()
+            face.loops[0][uv_layer].select = True
+        else:
+            face = eselface[0]
+        bpy.ops.uv.select_linked()
+        selected_faces = set(l.face  for f in faces  for l in f.loops  if l[uv_layer].select)
+        selected_faces.add(face)
+        faceGroups.append(selected_faces)
+        print("sss ", len(selected_faces), len(faces))
+        faces -= selected_faces
+    
+    for fg in faceGroups:
+        flattenfacegroup(fg, uv_layer)
+
+# Now in each facegroup the loops are the unique face-vertex pairs
+# We need to find which ones are the same by vertex index when the edge 
+# between them is not a seam
+
+def flattenfacegroup(fg, uv_layer):
+    print("fcf fg", len(fg))
+    # each contained non-seam edge equates 2 corresponding loops (face-vertex pairs)
+    jedges = set()
+    for f in fg:
+        for e in f.edges:
+            if len(e.link_faces) == 2:
+                if e.link_faces[0] in fg and e.link_faces[1] in fg:
+                    if not e.seam:
+                        jedges.add(e)
+
+    # derive the equivalence classes from the equivalence relation
+    allloops = set().union(*(f.loops for f in fg))
+    loopconns = dict((l, (l,))  for l in allloops)
+    for e in jedges:
+        tloops = list(e.link_faces[0].loops) + list(e.link_faces[1].loops)
+        tloops.sort(key=lambda l: l.vert.index)
+        assert (len(tloops) == 6)
+        for i in range(5):
+            if tloops[i].vert == tloops[i+1].vert:
+                l1, l2 = tloops[i], tloops[i+1]
+                if l1 not in loopconns[l2]:
+                    comb = loopconns[l1] + loopconns[l2]
+                    for l in comb:
+                        loopconns[l] = comb
+
+    # generate the points from equivalence classes and map the triangles 
+    looppoints = list(set(loopconns.values()))
+    npverts = numpy.array([ looppoint[0].vert.co  for looppoint in looppoints ])
+    connlookup = dict([ (looppoint, i)  for i, looppoint in enumerate(looppoints) ])
+    nptris = numpy.array( [ [ connlookup[loopconns[l]] for l in f.loops ] for f in fg ] )
+
+    # flatten and map back to the uv values
+    flattener = flatmesh.FaceUnwrapper(npverts, nptris)
+    flattener.findFlatNodes(10, 0.95)
+    fpts = [ mathutils.Vector((ze[0], ze[1]))  for ze in flattener.ze_nodes ]
+    for f in fg:
+        for l in f.loops:
+            l[uv_layer].uv = fpts[connlookup[loopconns[l]]]*0.5 + mathutils.Vector((0.5,0.5))
+
+
 class Seams_To_SewingPattern(Operator):
     bl_idname = "object.seams_to_sewingpattern"
     bl_label = "Seams to Sewing Pattern"
@@ -58,6 +142,13 @@ class Seams_To_SewingPattern(Operator):
         description="Don't actually flatten the panels of the new mesh",
         default=False,
     )
+
+    freecad_flattener: BoolProperty(
+        name="FreecadFlattener",
+        description="Flatten using the FreeCAD flattener",
+        default=True,
+    )
+
     use_remesh_seams: BoolProperty(
         name="Remesh seams",
         description="Subdivide along the seams",
@@ -76,7 +167,7 @@ class Seams_To_SewingPattern(Operator):
     target_tris: IntProperty(
         name="Target number of triangles",
         description="Actual number of triangle migh be a bit off",
-        default=25000,
+        default=5000,
     )
 
     def invoke(self, context, event):
@@ -108,6 +199,8 @@ class Seams_To_SewingPattern(Operator):
         row.prop(self, "bevel_skim")
         row = layout.row()
         row.prop(self, "dont_flatten")
+        row = layout.row()
+        row.prop(self, "freecad_flattener")
         row = layout.row()
         row.prop(self, "use_remesh_seams")
         row = layout.row()
@@ -148,14 +241,19 @@ class Seams_To_SewingPattern(Operator):
         bpy.ops.mesh.select_all(action='SELECT')
         if (self.do_unwrap != 'KEEP'):
             bpy.ops.uv.unwrap(method=self.do_unwrap, margin=0.02)
+            
+            
         bpy.ops.mesh.select_all(action='DESELECT')
-
 
         bm = bmesh.from_edit_mesh(me)
 
         obj["S2S_InitialVolume"] = bm.calc_volume()
 
         function_wrapper.do_update_edit_mesh(me)
+
+        if not self.dont_flatten and self.freecad_flattener:
+            freecadflatten(bm, me)
+            function_wrapper.do_update_edit_mesh(me)
 
         # Calculate edge length based on a surface of equilateral triangles.
         if (self.use_remesh_seams):
@@ -185,7 +283,7 @@ class Seams_To_SewingPattern(Operator):
             )
             return {'CANCELLED'}
 
-        if self.bevel_skim:
+        if self.bevel_skim:  # always on for this method to allow for those empty quads to join the edges with lines (only faces deleted)
             function_wrapper.do_bevel()
             # fix fanning seams
             degenerate_edges = list()
@@ -207,7 +305,7 @@ class Seams_To_SewingPattern(Operator):
                     for e in f.edges:
                         degenerate_edges.append(e)
 
-            bmesh.ops.collapse(bm, edges=degenerate_edges, uvs=True)
+            bmesh.ops.collapse(bm, edges=list(set(degenerate_edges)), uvs=True)
 
             bpy.ops.mesh.delete(type='ONLY_FACE')
 
