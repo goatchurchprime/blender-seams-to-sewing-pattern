@@ -23,7 +23,11 @@ with the emphasis on a real world application where the accuracy of the pattern 
 link from the addons directory
 > $ ~/.config/blender/4.5/scripts/addons]$ ln -s ../../../../../repositories/blender-seams-to-sewing-pattern-FC/ blender-seams-to-sewing-pattern
 
-go into blender-seams-to-sewing-pattern-FC/magic-blender and execute nix develop to enable python libraries flatmesh and numpy
+go into blender-seams-to-sewing-pattern-FC/magic-blender and execute nix develop to enable python libraries flatmesh and numpy.
+
+When I get to it, this module will be demonstrated as part of a [fursuit making vlog playlist](https://www.youtube.com/playlist?list=PLWnWawHX51kRYeiysUuHQ6aTbvYFyd1S4)  But the following image should give an idea of the complexity of the part that this has worked on.
+
+<img height="200" alt="image" src="https://github.com/user-attachments/assets/17a2949f-24f4-42f7-9018-85f39a78b61e" />
 
 
 # installation
