@@ -28,7 +28,8 @@ else:
     from . import op_clean_up_edges
     from . import op_freecad_flatten_component
 
-print("RELOADING SEAMS TO SEWINGPATTERN ADDON*** YYYYYYYY ***")
+# need to edit the __init__ file to trigger reload when addin disabled and then re-enabled
+print("RELOADING SEAMS TO SEWINGPATTERN ADDON*** YYssssFsYY ***")
 
 import bpy
 from bpy.types import Menu
@@ -51,11 +52,11 @@ class VIEW3D_MT_object_seams_to_sewing_pattern_menu(Menu):
 
     def draw(self, context):
         layout = self.layout
+        layout.operator("object.seams_to_sewingpattern", text="Seams to Sewing Pattern", icon="OUTLINER_DATA_SURFACE")
+        layout.separator()
         layout.operator("object.freecad_flatten_component", text="Freecad flatten component", icon="OUTLINER_DATA_SURFACE")
         layout.separator()
         layout.operator("object.export_flatpattern", text="Export flat Pattern", icon="OUTLINER_DATA_SURFACE")
-        layout.separator()
-        layout.operator("object.seams_to_sewingpattern", text="Seams to Sewing Pattern", icon="OUTLINER_DATA_SURFACE")
         layout.separator()
         layout.operator("object.export_sewingpattern", text="Export Sewing Pattern (.svg)", icon="EXPORT")
         layout.separator()

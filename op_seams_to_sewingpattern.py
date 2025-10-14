@@ -7,6 +7,7 @@ import math
 from bpy.props import (
     BoolProperty,
     IntProperty,
+    FloatProperty,
     EnumProperty,
 )
 
@@ -34,9 +35,8 @@ import flatmesh
 def freecadflatten(bm, me):
     uv_layer = bm.loops.layers.uv.active
     bpy.ops.uv.select(deselect_all=True)
-
     bpy.ops.mesh.select_mode(type="FACE")
-    bpy.ops.mesh.select_all()
+    bpy.ops.mesh.select_all(action='SELECT')
     faces = set(bm.faces[:])
     faceGroups = [ ]
     while faces:
@@ -56,7 +56,8 @@ def freecadflatten(bm, me):
     
     for fg in faceGroups:
         flattenfacegroup(fg, uv_layer)
-
+    bpy.ops.mesh.select_all(action='DESELECT')
+    
 # Now in each facegroup the loops are the unique face-vertex pairs
 # We need to find which ones are the same by vertex index when the edge 
 # between them is not a seam
@@ -137,9 +138,19 @@ class Seams_To_SewingPattern(Operator):
         description="Bevel seams to double and create edge line gap between",
         default=True,
     )
+    bevel_offset: FloatProperty(
+        name="Bevel offset",
+        description="For the gaps applied to the seams before projection",
+        default=0.0002,
+    )
     dont_flatten: BoolProperty(
         name="Dontflatten",
         description="Don't actually flatten the panels of the new mesh",
+        default=False,
+    )
+    dont_project: BoolProperty(
+        name="Dontproject",
+        description="Don't project the flattened UVs back to the 3D surfaces",
         default=False,
     )
 
@@ -198,7 +209,11 @@ class Seams_To_SewingPattern(Operator):
         row = layout.row()
         row.prop(self, "bevel_skim")
         row = layout.row()
+        row.prop(self, "bevel_offset")
+        row = layout.row()
         row.prop(self, "dont_flatten")
+        row = layout.row()
+        row.prop(self, "dont_project")
         row = layout.row()
         row.prop(self, "freecad_flattener")
         row = layout.row()
@@ -225,10 +240,14 @@ class Seams_To_SewingPattern(Operator):
             bpy.ops.mesh.customdata_custom_splitnormals_clear()
             bpy.context.object.data.materials.clear()  # try this next
 
-
         if self.apply_modifiers:
-            bpy.ops.object.convert(target='MESH')
-            obj = bpy.context.active_object
+            if self.keep_original:
+                with bpy.context.temp_override(object=obj):
+                    mod_names = [mod.name for mod in obj.modifiers]
+                    for mod_name in mod_names:
+                        bpy.ops.object.modifier_apply(modifier=mod_name)
+            else:
+                print("no modifiers applied if not keeping original")
 
         wm = bpy.context.window_manager
         bpy.ops.object.mode_set(mode='EDIT')
@@ -253,7 +272,8 @@ class Seams_To_SewingPattern(Operator):
 
         if not self.dont_flatten and self.freecad_flattener:
             freecadflatten(bm, me)
-            function_wrapper.do_update_edit_mesh(me)
+            #function_wrapper.do_update_edit_mesh(me)
+
 
         # Calculate edge length based on a surface of equilateral triangles.
         if (self.use_remesh_seams):
@@ -283,8 +303,9 @@ class Seams_To_SewingPattern(Operator):
             )
             return {'CANCELLED'}
 
-        if self.bevel_skim:  # always on for this method to allow for those empty quads to join the edges with lines (only faces deleted)
-            function_wrapper.do_bevel()
+        # the bevel thing makes those empty quads so corresponding vertexes can be connected between the faces
+        if self.bevel_skim:
+            function_wrapper.do_bevel(self.bevel_offset)
             # fix fanning seams
             degenerate_edges = list()
             for f in list(filter(lambda f: (f.select), bm.faces)):
@@ -305,9 +326,15 @@ class Seams_To_SewingPattern(Operator):
                     for e in f.edges:
                         degenerate_edges.append(e)
 
+            print("degenerate edges to collapse", degenerate_edges)
             bmesh.ops.collapse(bm, edges=list(set(degenerate_edges)), uvs=True)
 
+
+            print("quitting early")
+            return {'FINISHED'}
+
             bpy.ops.mesh.delete(type='ONLY_FACE')
+
 
         bpy.ops.mesh.select_mode(type="FACE")
         faceGroups = []
@@ -341,7 +368,7 @@ class Seams_To_SewingPattern(Operator):
 
         function_wrapper.do_update_edit_mesh(me)
         for g in faceGroups:
-            if self.dont_flatten:
+            if self.dont_flatten or self.dont_project:
                 break
             progress += 1
             wm.progress_update((progress / len(faceGroups)))
@@ -399,9 +426,10 @@ class Seams_To_SewingPattern(Operator):
 
             average_bitangent = mathutils.Vector(halfvector)
             average_bitangent.rotate(cw)
+            print("facegroup UV projected tangents ", average_tangent, average_bitangent, average_tangent.length, average_bitangent.length)
 
             # offset each face island by their UV value, using the tangent and
-            # bitangent
+            # bitangent to recreate the flat shape defined by the UVs in space
 
             for face in g:
                 for loop in face.loops:
@@ -422,7 +450,7 @@ class Seams_To_SewingPattern(Operator):
             area_after += sum(f.calc_area() for f in g)
 
         # done
-        if not self.dont_flatten:
+        if not (self.dont_flatten or self.dont_project):
             area_ratio = math.sqrt(area_before / area_after)
             bpy.ops.mesh.select_all(action='SELECT')
             previous_pivot = bpy.context.scene.tool_settings.transform_pivot_point
@@ -449,7 +477,7 @@ class Seams_To_SewingPattern(Operator):
         bpy.context.window.cursor_set('NONE')
         bpy.context.window.cursor_set('DEFAULT')
 
-        return{'FINISHED'}
+        return {'FINISHED'}
 
     def ensure_edgelength(self, max_length, mesh, wm):
         seam_edges = list(filter(lambda e: e.seam, mesh.edges))

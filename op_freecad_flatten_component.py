@@ -76,8 +76,13 @@ class Freecad_flatten_component(Operator):
 
     def execute(self, context):
         if self.apply_modifiers:
-            bpy.ops.object.convert(target='MESH')
+            print("Do we need to copy before applying modifiers?")
             obj = bpy.context.active_object
+            with bpy.context.temp_override(object=obj):
+                mod_names = [mod.name for mod in obj.modifiers]
+                for mod_name in mod_names:
+                    bpy.ops.object.modifier_apply(modifier=mod_name)
+
         bpy.ops.object.mode_set(mode='EDIT')
         obj = bpy.context.edit_object
         bm = bmesh.from_edit_mesh(obj.data)
@@ -131,32 +136,58 @@ class Freecad_flatten_component(Operator):
             else:
                 color_layer = bm.loops.layers.color.new("CCC")
             stretchrange = self.stretch_range
-            for fg, npverts, npfpts, nptris in flatteneddata:
+            triangdistortcols = [ ]
+            for i in range(len(flatteneddata)):
+                triangdistortcols.append([])
+                fg, npverts, npfpts, nptris = flatteneddata[i]
                 fvals = triangledistortions(npverts, npfpts, nptris)
                 print("min max distort", min(fvals), max(fvals))
                 for face, d in zip(fg, fvals):
                     l = min(1.0, abs(d)/stretchrange)
                     c = col1*(1-l) + (col0 if d < 0 else col2)*l
+                    triangdistortcols[-1].append(c)
                     for loop in face.loops:
                         loop[color_layer] = c
                 #bm.to_mesh(obj.data)
 
-        bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.context.view_layer.objects.active = None
+            
         if self.make_flatmesh:
-            i = bpy.data.collections.find("flatmeshes")
-            if i == -1:
+            fi = bpy.data.collections.find("flatmeshes")
+            if fi == -1:
                 mcoll = bpy.data.collections.new("flatmeshes")
                 bpy.context.scene.collection.children.link(mcoll)
             else:
-                mcoll = bpy.data.collections[i]
+                mcoll = bpy.data.collections[fi]
                 [ mcoll.objects.unlink(o)  for o in mcoll.objects ]
-            for fg, npverts, npfpts, nptris in flatteneddata:
+            lmcoll = bpy.context.view_layer.layer_collection.children[mcoll.name]
+            lmcoll.exclude = False
+            for i in range(len(flatteneddata)):
+                fg, npverts, npfpts, nptris = flatteneddata[i]
                 mesh = bpy.data.meshes.new("flatmesh%d" % len(fg))
                 mesh.from_pydata(list(npfpts), [], list(nptris))
                 mobj = bpy.data.objects.new(mesh.name, mesh)
                 mcoll.objects.link(mobj)
 
+                print("mmm ", mobj, list(mcoll.objects))
+                bpy.context.view_layer.objects.active = mobj
+                #mobj.select_set(True)
+                bpy.ops.object.mode_set(mode='EDIT')
+                if self.distort_colors:
+                    print("ggg", bpy.context.edit_object)
+                    fbm = bmesh.from_edit_mesh(bpy.context.edit_object.data)
+                    fcolor_layer = fbm.loops.layers.color.new("CCD")
+                    print("fcolor_layer", fcolor_layer)
+                    for face, c in zip(fbm.faces, triangdistortcols[i]):
+                        for loop in face.loops:
+                            loop[fcolor_layer] = c
+                bpy.ops.object.mode_set(mode='OBJECT')
+                #mobj.select_set(False)
+                bpy.context.view_layer.objects.active = None
+
         return {'FINISHED'}
+
 
 def trianglearea(p0, p1, p2):
     a = p1 - p0
@@ -226,8 +257,11 @@ def facevertstodoubleup(seam_edges, fg):
                     internal_seams.remove(es)
                     v = next(vf  for vf in e.verts  if vf != v)
                 else:
-                    f = next(ff  for ff in e.link_faces  if ff != f)
-                    lfaces.append(f)
+                    try:
+                        f = next(ff  for ff in e.link_faces  if ff != f)
+                        lfaces.append(f)
+                    except StopIteration:
+                        pass
         #print([v.index  for v in lverts])
         #for f in lfaces:
         #    print("  ", [v.index for v in f.verts])
