@@ -42,6 +42,11 @@ class Freecad_flatten_component(Operator):
         description="Color triangles by distortion.",
         default=True,
     )
+    distort_colors_perside: BoolProperty(
+        name="Per side",
+        description="Color triangles corner/sides distortion.",
+        default=True,
+    )
     make_flatmesh: BoolProperty(
         name="Make flat mesh",
         default=True,
@@ -69,6 +74,8 @@ class Freecad_flatten_component(Operator):
         row = layout.row()
         row.prop(self, "distort_colors")
         row = layout.row()
+        row.prop(self, "distort_colors_perside")
+        row = layout.row()
         row.prop(self, "make_flatmesh")
         row = layout.row()
         row.prop(self, "stretch_range")
@@ -77,25 +84,26 @@ class Freecad_flatten_component(Operator):
     def execute(self, context):
         if self.apply_modifiers:
             print("Do we need to copy before applying modifiers?")
+            print(" otherwise we need to Ctrl-Z several times to return to original state")
             obj = bpy.context.active_object
             with bpy.context.temp_override(object=obj):
-                mod_names = [mod.name for mod in obj.modifiers]
+                mod_names = [ mod.name  for mod in obj.modifiers  if mod.show_viewport ]
                 for mod_name in mod_names:
                     bpy.ops.object.modifier_apply(modifier=mod_name)
 
+
+        # Separate out the faces by connectivity
         bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_mode(type='FACE')
         obj = bpy.context.edit_object
         bm = bmesh.from_edit_mesh(obj.data)
+        #bm = bmesh.from_edit_mesh(bpy.context.edit_object.data)
 
-        bmverts = bm.verts[:]
-        faces = set(bm.faces[:])
-
-        fg = { f for f in bm.faces if f.select }
         face_groups = []
+        fg = { f for f in bm.faces if f.select }
         if not fg:
-            print("** no faces selected, separating all groups by seams")
             faces = set(bm.faces[:])
-            seam_edges = list(filter(lambda e: e.seam, bm.edges))
+            print("** no faces selected, separating all groups by seams nfaces=", len(faces))
             while faces:
                 bpy.ops.mesh.select_all(action='DESELECT')
                 face = faces.pop()
@@ -103,19 +111,22 @@ class Freecad_flatten_component(Operator):
                 bpy.ops.mesh.select_linked()
                 selected_faces = {f for f in faces if f.select}
                 selected_faces.add(face) # this or bm.faces above?
+                print("facegroup", len(face_groups), " nfaces=", len(selected_faces))
                 face_groups.append(selected_faces)
                 faces -= selected_faces
         else:
             face_groups.append(fg)
         
+        # run the flattener on each face group
         flatteneddata = [ ]
+        bmverts = bm.verts[:]
+        seam_edges = list(filter(lambda e: e.seam, bm.edges))  # from which internal seams are derived
         for i, fg in enumerate(face_groups):
             g = sorted(set().union(*((v.index  for v in f.verts) for f in fg)))
             verts = [ tuple(bmverts[j].co)  for j in g ]
             gmap = dict(zip(g, range(len(g))))
 
             print(i, "faces ", len(fg), len(verts))
-            seam_edges = list(filter(lambda e: e.seam, bm.edges))
             facverts = facevertstodoubleup(seam_edges, fg)
             tris = trilist(gmap, verts, facverts, fg)
 
@@ -128,31 +139,35 @@ class Freecad_flatten_component(Operator):
             if math.isnan(fpts[0][0]) or math.isnan(fpts[0][1]) or math.isnan(fpts[0][2]):
                 print("fluffnumber flattening failed")
                 continue
-            flatteneddata.append([fg, npverts, npfpts, nptris])
+            flatteneddata.append([ list(fg), npverts, npfpts, nptris ])
             
+        # colour the facegroups
         if self.distort_colors:
             if len(bm.loops.layers.color) > 0:
                 color_layer = bm.loops.layers.color[obj.data.vertex_colors.active_index]
             else:
                 color_layer = bm.loops.layers.color.new("CCC")
+            obj.data.vertex_colors.active_index = obj.data.vertex_colors.find("CCC")
             stretchrange = self.stretch_range
             triangdistortcols = [ ]
             for i in range(len(flatteneddata)):
                 triangdistortcols.append([])
                 fg, npverts, npfpts, nptris = flatteneddata[i]
-                fvals = triangledistortions(npverts, npfpts, nptris)
-                print("min max distort", min(fvals), max(fvals))
-                for face, d in zip(fg, fvals):
-                    l = min(1.0, abs(d)/stretchrange)
-                    c = col1*(1-l) + (col0 if d < 0 else col2)*l
-                    triangdistortcols[-1].append(c)
-                    for loop in face.loops:
+                fvals = triangledistortions(npverts, npfpts, nptris, self.distort_colors_perside)
+                print("min max distort surface ", i, ":", min(fvals), max(fvals))
+                for j in range(len(fg)):
+                    face = fg[j]
+                    for k, loop in enumerate(face.loops):
+                        d = fvals[j*3 + k]
+                        l = min(1.0, abs(d)/stretchrange)
+                        c = col1*(1-l) + (col0 if d < 0 else col2)*l
+                        triangdistortcols[-1].append(c)
                         loop[color_layer] = c
-                #bm.to_mesh(obj.data)
 
+
+        # generate the flattened meshes from the flattened data
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.context.view_layer.objects.active = None
-            
         if self.make_flatmesh:
             fi = bpy.data.collections.find("flatmeshes")
             if fi == -1:
@@ -170,21 +185,20 @@ class Freecad_flatten_component(Operator):
                 mobj = bpy.data.objects.new(mesh.name, mesh)
                 mcoll.objects.link(mobj)
 
-                print("mmm ", mobj, list(mcoll.objects))
-                bpy.context.view_layer.objects.active = mobj
-                #mobj.select_set(True)
-                bpy.ops.object.mode_set(mode='EDIT')
+                # apply flattened colours to the new mesh
                 if self.distort_colors:
+                    bpy.context.view_layer.objects.active = mobj
+                    bpy.ops.object.mode_set(mode='EDIT')
                     print("ggg", bpy.context.edit_object)
                     fbm = bmesh.from_edit_mesh(bpy.context.edit_object.data)
                     fcolor_layer = fbm.loops.layers.color.new("CCD")
+                    mobj.data.vertex_colors.active_index = mobj.data.vertex_colors.find("CCD")
                     print("fcolor_layer", fcolor_layer)
-                    for face, c in zip(fbm.faces, triangdistortcols[i]):
-                        for loop in face.loops:
-                            loop[fcolor_layer] = c
-                bpy.ops.object.mode_set(mode='OBJECT')
-                #mobj.select_set(False)
-                bpy.context.view_layer.objects.active = None
+                    for j, face in enumerate(fbm.faces):
+                        for k, loop in enumerate(face.loops):
+                            loop[fcolor_layer] = triangdistortcols[i][j*3 + k]
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                    bpy.context.view_layer.objects.active = None
 
         return {'FINISHED'}
 
@@ -195,16 +209,36 @@ def trianglearea(p0, p1, p2):
     c = numpy.array((a[1]*b[2] - b[1]*a[2], -a[0]*b[2] + b[0]*a[2], a[0]*b[1] - b[0]*a[1]))
     return math.sqrt(sum(c*c))/2
 
+def fedgelen(p0, p1):
+    a = p1 - p0
+    return math.sqrt(sum(a*a))/2
+
+
+
 col0 = numpy.array((0.0,0.0,1.0,1.0))
 col2 = numpy.array((1.0,0.0,0.0,1.0))
 col1 = numpy.array((0.9,0.9,0.9,1.0))
+colGREEN = numpy.array((0.1,0.9,0.1,1.0))
 
-def triangledistortions(verts, fpts, tris):
+def triangledistortions(verts, fpts, tris, perside):
     fvals = [ ]
-    for tri in tris:
-        av = trianglearea(verts[tri[0]], verts[tri[1]], verts[tri[2]])
-        fv = trianglearea(fpts[tri[0]], fpts[tri[1]], fpts[tri[2]])
-        fvals.append(fv/av - 1.0)
+    for i, tri in enumerate(tris):
+        if perside:
+            fe01 = fedgelen(fpts[tri[0]], fpts[tri[1]])/fedgelen(verts[tri[0]], verts[tri[1]]) - 1.0
+            fe12 = fedgelen(fpts[tri[1]], fpts[tri[2]])/fedgelen(verts[tri[1]], verts[tri[2]]) - 1.0
+            fe20 = fedgelen(fpts[tri[2]], fpts[tri[0]])/fedgelen(verts[tri[2]], verts[tri[0]]) - 1.0
+            print("ee", i, fe01, fe12, fe20, verts[tri[0]], verts[tri[1]], verts[tri[2]])
+            fvals.append(fe01 + fe20 - fe12)
+            fvals.append(fe12 + fe01 - fe20)
+            fvals.append(fe20 + fe12 - fe01)
+        else:
+            fv = trianglearea(fpts[tri[0]], fpts[tri[1]], fpts[tri[2]])
+            av = trianglearea(verts[tri[0]], verts[tri[1]], verts[tri[2]])
+            print("t", i, "%.5f"%fv, "%.5f"%av, tri, verts[tri[0]], verts[tri[1]], verts[tri[2]])
+            ft = fv/av - 1.0
+            fvals.append(ft)
+            fvals.append(ft)
+            fvals.append(ft)
     return fvals
 
 def trilist(gmap, verts, facverts, fg):
@@ -231,7 +265,7 @@ def trilist(gmap, verts, facverts, fg):
 def facevertstodoubleup(seam_edges, fg):
     res = [ ]
     internal_seams = set(e  for e in seam_edges  if sum(int(f in fg)  for f in e.link_faces) == 2)
-    #print("internal seams vertex pairs", [[e.verts[0].index, e.verts[1].index]  for e in internal_seams])
+    print("internal seams vertex pairs", [[e.verts[0].index, e.verts[1].index]  for e in internal_seams])
     while internal_seams:
         lfaces = [ ]
         lverts = set()
@@ -248,7 +282,7 @@ def facevertstodoubleup(seam_edges, fg):
                     #print("wrap endpoint")
                     lfaces.pop()
                     break  # wrap end point
-                if e.seam:
+                if e.seam or len(e.link_faces) == 1:
                     lverts.add(v)
                     if not (e in internal_seams):
                         #print("hit boundary")

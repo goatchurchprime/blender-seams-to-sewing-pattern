@@ -28,8 +28,8 @@ else:
     from . import op_clean_up_edges
     from . import op_freecad_flatten_component
 
-# need to edit the __init__ file to trigger reload when addin disabled and then re-enabled
-print("RELOADING SEAMS TO SEWINGPATTERN ADDON*** YYssssFsYY ***")
+# need to edit the __init__.py file to trigger reload when addin by selecting "seams to sewing patterns" from edit->preferences and then disable and re-enable
+print("RELOADING SEAMS TO SEWINGPATTERN ADDON*** YsdssdddfssfsssfFsfY ***")
 
 import bpy
 from bpy.types import Menu
