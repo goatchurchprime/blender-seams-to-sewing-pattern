@@ -95,14 +95,15 @@ class Export_Flatpattern(bpy.types.Operator):
                 for l in f.loops:
                     if l.edge.is_boundary:
                         bls[l.vert] = l.edge.verts[0] if l.vert != l.edge.verts[0] else l.edge.verts[1]
-            vbound = list(bls.popitem())
-            while vbound[-1] in bls:
-                vbound.append(bls.pop(vbound[-1]))
-
-            fout.write('<g><path class="seam" d="M')
-            for v in vbound:
-                fout.write('%.1f,%.1f ' % (v.co[0]*1000, (-v.co[1])*1000))
-            fout.write('"/></g>\n')
+            while bls:
+                vbound = list(bls.popitem())
+                while vbound[-1] in bls:
+                    vbound.append(bls.pop(vbound[-1]))
+                fout.write('<g><path class="seam" d="M')
+                for v in vbound:
+                    fout.write('%.1f,%.1f ' % (v.co[0]*1000, (-v.co[1])*1000))
+                fout.write('"/></g>\n')
+                
         fout.write('</svg>\n')
             
         bpy.ops.object.mode_set(mode='OBJECT')

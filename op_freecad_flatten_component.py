@@ -117,9 +117,15 @@ class Freecad_flatten_component(Operator):
         else:
             face_groups.append(fg)
         
+        zflatlayer = 0
+
         # run the flattener on each face group
         flatteneddata = [ ]
         bmverts = bm.verts[:]
+        zflatlayer = min(vert.co[2]  for vert in bmverts) - 20*0.001
+        xflat0 = sum(vert.co[0]  for vert in bmverts)/len(bmverts)
+        yflat0 = sum(vert.co[1]  for vert in bmverts)/len(bmverts)
+        
         seam_edges = list(filter(lambda e: e.seam, bm.edges))  # from which internal seams are derived
         for i, fg in enumerate(face_groups):
             g = sorted(set().union(*((v.index  for v in f.verts) for f in fg)))
@@ -134,7 +140,7 @@ class Freecad_flatten_component(Operator):
             nptris = numpy.array(tris)
             flattener = flatmesh.FaceUnwrapper(npverts, nptris)
             flattener.findFlatNodes(10, 0.95)
-            fpts = [ (ze[0], ze[1], i*0.01)  for ze in flattener.ze_nodes ]
+            fpts = [ (ze[0] + xflat0, ze[1] + yflat0, zflatlayer + i*0.01)  for ze in flattener.ze_nodes ]
             npfpts = numpy.array(fpts)
             if math.isnan(fpts[0][0]) or math.isnan(fpts[0][1]) or math.isnan(fpts[0][2]):
                 print("fluffnumber flattening failed")
@@ -158,7 +164,7 @@ class Freecad_flatten_component(Operator):
                     tri = nptris[j]
                     fv = trianglearea(npfpts[tri[0]], npfpts[tri[1]], npfpts[tri[2]])
                     av = trianglearea(npverts[tri[0]], npverts[tri[1]], npverts[tri[2]])
-                    ft = fv/av - 1.0
+                    ft = fv/max(av, fv*0.001) - 1.0
                     c = stretchtocolour(ft, stretchrangetriang)
                     for k, loop in enumerate(face.loops):
                         loop[color_layer] = c
@@ -234,7 +240,10 @@ def edgesplitverts(i0, i1, cfpts, edgesplitmap):
     else:
         edgemidpoints.reverse()
     return edgemidpoints
-    
+
+def divmm(a, b):
+    return a/max(a*0.001, b)
+
 def trianglestocolourednpolys(fpts, tris, pts):
     cfpts = list(fpts)
     cpolys = [ ]
@@ -243,9 +252,9 @@ def trianglestocolourednpolys(fpts, tris, pts):
     for tri in tris:
         cpolyvvalues = [ ]
         cpolyvcolours = [ ]
-        fe01 = fedgelen(fpts[tri[0]], fpts[tri[1]])/fedgelen(pts[tri[0]], pts[tri[1]]) - 1.0
-        fe12 = fedgelen(fpts[tri[1]], fpts[tri[2]])/fedgelen(pts[tri[1]], pts[tri[2]]) - 1.0
-        fe20 = fedgelen(fpts[tri[2]], fpts[tri[0]])/fedgelen(pts[tri[2]], pts[tri[0]]) - 1.0
+        fe01 = divmm(fedgelen(fpts[tri[0]], fpts[tri[1]]), fedgelen(pts[tri[0]], pts[tri[1]])) - 1.0
+        fe12 = divmm(fedgelen(fpts[tri[1]], fpts[tri[2]]), fedgelen(pts[tri[1]], pts[tri[2]])) - 1.0
+        fe20 = divmm(fedgelen(fpts[tri[2]], fpts[tri[0]]), fedgelen(pts[tri[2]], pts[tri[0]])) - 1.0
 
         cpoly = [ tri[0] ]
         cpolyvcolours = [ 0.0*(fe01 + fe20 - fe12) ]
